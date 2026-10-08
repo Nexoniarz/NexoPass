@@ -27,7 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
-const val APP_VERSION = "1.3.0"
+const val APP_VERSION = "1.3.1"
 
 private fun bioLabel(mode: String) = when (mode) {
     "strong" -> "Fingerprint or face"

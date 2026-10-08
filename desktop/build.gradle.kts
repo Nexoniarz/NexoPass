@@ -76,3 +76,9 @@ compose.desktop {
         buildTypes.release.proguard { isEnabled.set(false) }
     }
 }
+
+// Bouncy Castle jars are signed; merged into one jar those signatures no
+// longer match and Java refuses to start. The single jar doesn't need them.
+tasks.matching { it.name.startsWith("packageUberJar") || it.name.startsWith("packageReleaseUberJar") }.configureEach {
+    (this as org.gradle.jvm.tasks.Jar).exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "META-INF/*.EC")
+}

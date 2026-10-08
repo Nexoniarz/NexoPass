@@ -7,5 +7,5 @@ plugins {
 }
 
 // One version for every app; CI passes -PappVersion=X.Y.Z from the git tag.
-val appVersion = (findProperty("appVersion") as String?) ?: "1.3.0"
+val appVersion = (findProperty("appVersion") as String?) ?: "1.3.1"
 extra["appVersion"] = appVersion
