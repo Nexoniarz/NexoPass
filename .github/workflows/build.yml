@@ -1,0 +1,111 @@
+name: Build
+
+# Every push builds and tests everything; a tag like v1.3.0 also publishes a
+# release with the Android APK, the Linux packages and the Windows installer.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Version from tag
+        shell: bash
+        run: |
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then echo "GRADLE_ARGS=-PappVersion=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"; fi
+      - name: Signing key
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.NEXOPASS_KEYSTORE_B64 }}
+        run: |
+          # Same key as the APKs built before, so the app updates in place.
+          if [[ -n $KEYSTORE_B64 ]]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "NEXOPASS_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          fi
+      - name: Build APK
+        env:
+          NEXOPASS_KEYSTORE_PASSWORD: ${{ secrets.NEXOPASS_KEYSTORE_PASSWORD }}
+          NEXOPASS_KEY_ALIAS: ${{ secrets.NEXOPASS_KEY_ALIAS }}
+          NEXOPASS_KEY_PASSWORD: ${{ secrets.NEXOPASS_KEY_PASSWORD }}
+        run: ./gradlew :android:assembleRelease $GRADLE_ARGS
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir dist
+          cp android/build/outputs/apk/release/android-release.apk "dist/NexoPass-${GITHUB_REF_NAME#v}-android.apk"
+      - uses: actions/upload-artifact@v4
+        with: { name: android, path: dist/* }
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+      - run: sudo apt-get update && sudo apt-get install -y rpm
+      - name: Version from tag
+        shell: bash
+        run: |
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then echo "GRADLE_ARGS=-PappVersion=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"; fi
+      - name: Test (passwords must match the script)
+        run: ./gradlew :desktop:test $GRADLE_ARGS
+      - name: Build Linux packages
+        run: ./gradlew :desktop:packageDeb :desktop:packageRpm :desktop:packageUberJarForCurrentOS $GRADLE_ARGS
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir dist
+          cp desktop/build/compose/binaries/main/deb/*.deb dist/
+          cp desktop/build/compose/binaries/main/rpm/*.rpm dist/
+          cp desktop/build/compose/jars/*.jar dist/
+      - uses: actions/upload-artifact@v4
+        with: { name: linux, path: dist/* }
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Version from tag
+        shell: bash
+        run: |
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then echo "GRADLE_ARGS=-PappVersion=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"; fi
+      - name: Build installer and portable version
+        shell: bash
+        run: ./gradlew :desktop:packageMsi :desktop:createDistributable $GRADLE_ARGS
+      - name: Collect
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item desktop/build/compose/binaries/main/msi/*.msi dist/
+          $v = "$env:GITHUB_REF_NAME".TrimStart("v")
+          Compress-Archive -Path desktop/build/compose/binaries/main/app/NexoPass -DestinationPath "dist/NexoPass-$v-windows-portable.zip"
+      - uses: actions/upload-artifact@v4
+        with: { name: windows, path: dist/* }
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [android, linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

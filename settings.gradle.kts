@@ -13,4 +13,7 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "NexoPass"
-include(":app")
+
+// shared/ holds the code both apps compile: core (passwords, vault, export)
+// and the Compose UI. Each app adds it as a source folder.
+include(":android", ":desktop")
